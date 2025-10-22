@@ -12,11 +12,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(knitr)
 library(microbiome) # For alpha-diversity measures
+library(phytools)
 library(picante) # For Faith's PD
 library(ape) # For phylotree
 library(dplyr)
-library(phyloseq)
-library(lme4)
+library(phyloseq) # Midpoint root 
+library(lme4) # Linear model
 library(lmerTest)     # v3.1.3 for lmer with p-values
 library(car)          # v3.1.2 for Anova (Type II)
 library(performance)  # v0.12.0 for R2 and residual checks
@@ -24,20 +25,15 @@ library(DHARMa)
 library(RColorBrewer) # ggplot
 library(data.table)
 library(emmeans) # Post hoc test
-library(vegan) # rarefaction
-library(tidyr)
+library(tidyverse) # Pivot longer
 library(microbiomeutilities) # theme_biome_utils
-
-# do i need these?
-library(phyloseq)
-library(tidyverse)
 library(Biostrings)
-library(phytools)
+library(vegan)
 library(rstatix)
 
-options(bitmapType='cairo')
-
+options(bitmapType='cairo') # Visualise plots on interactive R
 ```
+
 
 Load data using phyloseq
 ```{r, include=FALSE}
@@ -89,47 +85,12 @@ sample_data(ps_tree)$Site_Tree <- factor(paste(sample_data(ps_tree)$Site, sample
 
 # 1. OPTIONAL !!! Prune to X (e.g. 1,000) read depth - i had a weird sample with only 450 that was skewing results --------
 ps_filt <- prune_samples(sample_sums(ps_tree) >= 1000, ps_tree)
+```
 
+# Calculate alpha-diversity measures on filtered reads
+```{r, include=FALSE}
 # Keep ASVs with ≥10 total reads across all samples
 ps1 <- prune_taxa(taxa_sums(ps_filt) >= 10, ps_filt)
-
-
-```
-
-Rarefaction
-```{r}
-depths <- sample_sums(ps1)
-summary(depths)
-barplot(depths, las = 2, cex.names = 0.6,
-        ylab = "Sequencing depth", xlab = "Samples",
-        main = "Reads per sample")
-
-# Extract the raw count matrix
-otu_mat <- as(otu_table(ps1), "matrix")
-if (taxa_are_rows(ps1)) otu_mat <- t(otu_mat)
-
-# Rarefaction curves
-rarecurve(otu_mat,
-         # sample = 2000,
-          step   = 500,
-          col    = rainbow(nrow(otu_mat)),
-          label  = FALSE)
-
-min(rowSums(otu_mat))
-abline(v = 464, lty = 2) # your chosen cutoff
-
-# Compute goods coverage 
-singletons <- apply(otu_mat, 1, function(x) sum(x == 1))
-N          <- rowSums(otu_mat)
-goods_cov  <- 1 - (singletons / N)
-summary(goods_cov)
-
-```
-
-```{r, include=FALSE}
-#ps1 <- microbiome::transform(ps1,"compositional")
-# Ensure ps1 has only the same samples as ps1r
-# ps1_trimmed <- prune_samples(sample_names(ps1r), ps1)
 
 #make dataframe with the selected indices, plus the phylogenetic diversity index
 adiv <- data.frame(  "Observed" = microbiome::alpha(ps1, index = "observed"),
@@ -139,9 +100,6 @@ adiv <- data.frame(  "Observed" = microbiome::alpha(ps1, index = "observed"),
                     "EvennessPielou"= microbiome::alpha(ps1, index = "evenness_pielou"),
                     "Phylogenetic" = picante::pd(samp = as.data.frame(phyloseq::otu_table(ps1)),
                      tree = phyloseq::phy_tree(ps1), include.root=TRUE))
-
-
-
 
 setDT(adiv, keep.rownames = "Sample_name")
 
@@ -160,7 +118,6 @@ levels(ps1.meta$Tissue_health)
 
 Shannon's diversity 
 ```{r}
-
 # View boxplot
 mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
 
@@ -178,7 +135,7 @@ plot_s <- ggplot(ps1.meta, aes(x = Tissue_health, y = diversity_shannon)) +
 
 plot_s
 
-# Run linear mixed effects model
+# 1. Run linear mixed effects model
 m_shannon <- lmer(
   diversity_shannon ~ ReadDepth_z + Tissue_health + Site + (1 | Site_Tree), data = ps1.meta) 
 
@@ -194,7 +151,6 @@ check_model(m_shannon)
 # Additional residual diagnostics using DHARMa
 simulation_output <- simulateResiduals(fittedModel = m_shannon)
 plot(simulation_output)
-
 
 # 4. Calculate marginal and conditional R²
 r2_results <- r2(m_shannon)
@@ -225,7 +181,7 @@ plot_fpd <- ggplot(ps1.meta, aes(x = Tissue_health, y = Phylogenetic.PD)) +
 
 plot_fpd
 
-# Run linear mixed effects model
+# 1. Run linear mixed effects model
 m_FPD <- lmer(
   Phylogenetic.PD ~ ReadDepth_z + Tissue_health + Site + (1 | Site_Tree), data = ps1.meta) 
 
@@ -250,14 +206,11 @@ simulation_output <- simulateResiduals(fittedModel = m_FPD)
 plot(simulation_output)
 
 
-# 4. Calculate marginal and conditional R²
+# 3. Calculate marginal and conditional R²
 r2_results <- r2(m_FPD)
 r2_results
 
-# Warning: Can't compute random effect variances. Some variance components equal zero. Your model may suffer from
-#  singularity (see `?lme4::isSingular` and `?performance::check_singularity`).
-
-# Pairwise comparisons for Tissue_health
+# 4. Pairwise comparisons for Tissue_health
 p_FPD <- emmeans(m_FPD, pairwise ~ Tissue_health, adjust = "tukey")
 print(p_FPD)
 ```
@@ -280,39 +233,29 @@ ggplot(ps1.meta, aes(x = Tissue_health, y = observed)) +
     panel.grid = element_blank(),
     panel.border = element_rect(color = "black", fill = NA, size = 1))
 
-# Run linear mixed effects model
+# 1. Run linear mixed effects model
 m_observed <- lmer(
   observed ~ ReadDepth_z + Tissue_health + Site + (1 | Site_Tree), data = ps1.meta) 
-
 summary(m_observed)
 
 # 2. Perform Type II ANOVA to evaluate fixed effects
 anova_observed <- Anova(m_observed)
 print(anova_observed)
 
-# TreeID has no impact on the outcome of the model 
-# Tissue health highly significant
-# Site significant
-# Read depth highly significant 
-
 # Check normality, linearity, homogeneity plots
 check_model(m_observed)  
-
 
 # Additional residual diagnostics using DHARMa
 simulation_output <- simulateResiduals(fittedModel = m_observed)
 plot(simulation_output)
 
-
-# 4. Calculate marginal and conditional R²
+# 3. Calculate marginal and conditional R²
 r2_results <- r2(m_observed)
 print(r2_results)
 # Warning: Can't compute random effect variances. Some variance components equal zero. Your model may suffer from
 #  singularity (see `?lme4::isSingular` and `?performance::check_singularity`).
 
-# If model meets assumptions ---- POSTHOC TEST
-
-# Pairwise comparisons for Tissue_health
+# 4. Pairwise comparisons for Tissue_health
 p_oberved <- emmeans(m_observed, pairwise ~ Tissue_health, adjust = "tukey")
 print(p_oberved)
 ```
@@ -346,11 +289,6 @@ summary(m_evenness)
 anova_evenness <- Anova(m_evenness)
 print(anova_evenness)
 
-# TreeID has no impact on the outcome of the model 
-# Tissue health highly significant
-# Site significant
-# Read depth highly significant 
-
 # Check normality, linearity, homogeneity plots
 check_model(m_evenness)  
 
@@ -358,13 +296,11 @@ check_model(m_evenness)
 simulation_output <- simulateResiduals(fittedModel = m_evenness)
 plot(simulation_output)
 
-
-# 4. Calculate marginal and conditional R²
+# 3. Calculate marginal and conditional R²
 r2_results <- r2(m_evenness)
 print(r2_results)
 
-
-# Pairwise comparisons for Tissue_health
+# 4. Pairwise comparisons for Tissue_health
 p_evenness <- emmeans(m_evenness, pairwise ~ Tissue_health, adjust = "tukey")
 print(p_evenness)
 
@@ -396,32 +332,21 @@ summary(m_DDBP)
 anova_DDBP <- Anova(m_DDBP)
 print(anova_DDBP)
 
-# TreeID has no impact on the outcome of the model 
-# Tissue health highly significant
-# Site significant
-# Read depth highly significant 
-
 # Check normality, linearity, homogeneity plots
 check_model(m_DDBP)  
-
 
 # Additional residual diagnostics using DHARMa
 simulation_output <- simulateResiduals(fittedModel = m_DDBP)
 plot(simulation_output)
 
-
-# 4. Calculate marginal and conditional R²
+# 3. Calculate marginal and conditional R²
 r2_results <- r2(m_DDBP)
 print(r2_results)
-# Warning: Can't compute random effect variances. Some variance components equal zero. Your model may suffer from
-#  singularity (see `?lme4::isSingular` and `?performance::check_singularity`).
 
-# Pairwise comparisons for Tissue_health
+# 4. Pairwise comparisons for Tissue_health
 p_DDBP <- emmeans(m_DDBP, pairwise ~ Tissue_health, adjust = "tukey")
 
 print(p_DDBP)
-
-
 ```
 
 Save results
@@ -467,85 +392,17 @@ df_observed <- anova_to_df(p_oberved$contrasts, "Observed richness")
 
 # Combine all into one dataframe
 emmeans_all <- bind_rows(df_shannon, df_FPD, df_DDBP, df_evenness, df_observed)
-#write_csv(emmeans_all, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/alpha_diversity/ITS_EMMEANS_ALL.csv")
-
-test <- as.data.frame(p_shannon$contrasts)
-
-p_FPD
-p_DDBP
-p_evenness
-p_oberved
-
+write_csv(emmeans_all, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/alpha_diversity/ITS_EMMEANS_ALL.csv")
 ```
 
-FACET
+Plot
 ```{r}
-ps1_long <- ps1.meta %>%
-  pivot_longer(
-    cols = c("observed", "diversity_shannon", "dominance_dbp", "evenness_pielou", "Phylogenetic.PD"),
-    names_to  = "Index",
-    values_to = "Value"
-  )
-
 ps1_long <- ps1.meta %>%
   pivot_longer(
     cols = c("observed", "diversity_shannon", "Phylogenetic.PD"),  # "dominance_dbp", "evenness_pielou",
     names_to  = "Index",
     values_to = "Value") %>% 
   mutate(Tissue_health = factor(Tissue_health, levels = c("Healthy", "Non-symptomatic", "Symptomatic")))
-
-sig_df <- emmeans_all %>%
-  tidyr::separate(contrast, into = c("group1", "group2"), sep = " - ") %>%
-  mutate(
-    group2 = gsub("[()]", "", group2),
-    p.signif = case_when(
-      p.value < 0.001 ~ "***",
-      p.value < 0.01  ~ "**",
-      p.value < 0.05  ~ "*",
-      TRUE ~ "ns"
-    ),
-    Index = dplyr::recode(Index,
-      !!!c(
-      "Faith's PD" = "Faith's Phylogenetic Diversity",
-      "Dominance DBP" = "Dominance DBP",
-      "Evenness Pielou" = "Evenness Pielou", 
-      "Observed richness" = "Observed richness"))) %>%
-  # keep only the  indices you care about
-  filter(Index %in% c("Faith's Phylogenetic Diversity", "Observed richness")) %>%
-  filter(p.value < 0.05)
-
-
-library(ggpubr)
-
-ggplot(ps1_long, aes(
-  x = factor(Site, 
-             levels = c("Lathkill_dale", "Wytham"), 
-             labels = c("Lathkill Dale", "Wytham Woods")),
-  y = Value
-)) +
-  geom_boxplot(aes(fill = Tissue_health),  outlier.size = 0.6, outlier.colour = "red") +
-  geom_jitter(aes(fill = Tissue_health), size = 0.6, width = 0.2) +
-  facet_wrap(
-    ~ Index, 
-    scales = "free_y",
-    labeller = labeller(Index = c(
-      diversity_shannon = "Shannon Diversity",
-      observed = "Observed Richness",
-      Phylogenetic.PD = "Faith's Phylogenetic Diversity"
-    ))
-  ) +
-  scale_fill_manual(values = c("#2E4F79", "#93D6A0", "pink")) +
-  scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
-  labs(x = "Site", y = "Diversity Index Value") +
-  theme_biome_utils() +
-  theme(
-    axis.text.x = element_text(size = 10, angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 10),
-    legend.position = "top",
-    text = element_text(size = 10)
-  )
-
-
 
 ggplot(ps1_long, aes(
   x = factor(Site,
