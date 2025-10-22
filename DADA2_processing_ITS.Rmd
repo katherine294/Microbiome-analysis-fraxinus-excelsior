@@ -1,0 +1,252 @@
+---
+title: "DADA2 pre-processing of ITS sequences"
+author: "Katherine Hinton"
+output: html_document
+date: "2025-06-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir =
+"/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Raw")
+```
+
+```{r}
+library(dada2)
+packageVersion("dada2")
+library(ShortRead)
+packageVersion("ShortRead")
+library(Biostrings)
+packageVersion("Biostrings")
+library(readr)
+```
+
+```{r}
+## Set path to the directory containing the fastq files.
+path <- "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Raw"
+list.files(path)
+```
+
+```{r}
+#sort files so that forward and reverse file names are recognised
+fnFs <- sort(list.files(path, pattern="_1.fastq", full.names= TRUE))
+fnRs <- sort(list.files(path, pattern="_2.fastq", full.names= TRUE))
+fnFs
+fnRs
+```
+
+If you have primers there are some pre filtering steps to do, check DADA2 ITS tutorial online, we don't have to do it with the Novogene files. https://benjjneb.github.io/dada2/ITS_workflow.html 
+
+```{r}
+##Extract smaple name using basename 
+sample.names <- sapply(strsplit(basename(fnFs), "_1"), `[`, 1)
+sample.names
+```
+
+```{r}
+##plot quality profiles 
+#options(bitmapType='cairo')
+f<-plotQualityProfile(fnFs[40:41])
+r<-plotQualityProfile(fnRs[1:2])
+
+f
+r
+
+```
+
+Filter and trim
+```{r}
+##create subdirectory for filtered reads and assign filtered name
+filtFs <- file.path(path, "filtered_ITS_1108", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered_ITS_1108", paste0(sample.names, "_R_filt.fastq.gz"))
+
+##asign filtered names
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+```
+
+```{r}
+##carry out filtering with parameters 
+##trunclen may be a problem for ITS reads due to big variation in length of the loci, so you can omit it.
+##Forward and reverse reads may be around 150bp (16s V4) to form a ~300bp fragment
+##trimming and filtering must account for this
+##FIGARO is a software which can be used to determine optimum trimming and filtering conditions but can only be used if
+#the sequences are the same length??
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, 
+                     maxN=0, maxEE=2, minLen=50, truncQ=2, rm.phix=TRUE,
+                     compress=TRUE, multithread=FALSE)       # On Windows set multithread=FALSE
+
+head(out)
+
+```
+
+```{r}
+##Calculation of error rates using machine learning = learn error rates using parametric error model
+errF <- learnErrors(filtFs, multithread = TRUE, randomize   = TRUE)
+errR <- learnErrors(filtRs, multithread = TRUE, randomize   = TRUE,)
+
+##No files means parameters didnt work for trimming and filtering
+plotErrors(errF, nominalQ=TRUE, )
+plotErrors(errR, nominalQ=TRUE)
+```
+
+```{r}
+##Dereplication 
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+
+#Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+```
+
+```{r}
+##Rerun fastqc after filtering and trimming 
+
+##Run denoising algorithm which utilises data from the error 
+dadaFs <- dada(derepFs, err=errF, multithread = TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread = TRUE)
+
+##inspect dada2-class object to look at number of unique sequneces
+dadaFs[[1]]
+dadaRs[[1]]
+
+```
+
+```{r}
+##Merge forward and reverse paired reads for full denoised sequence.
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
+head(mergers[[1]])
+
+##Make sequence table
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+
+##Inspect sequence length (they are variable for ITS region)
+table(nchar(getSequences(seqtab)))
+```
+
+```{r}
+##Remove chimeras - this is easier to do after dnoising and creating ASV's as opposed to OTU's
+seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus", multithread = TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+head(seqtab.nochim)
+
+##Remaining sequneces after chimera removal?
+sum(seqtab.nochim)/sum(seqtab)
+
+
+##Inspect distribution of sequence lengths:
+table(nchar(getSequences(seqtab.nochim)))
+```
+
+```{r}
+##Check number of reads that has passed through each step of the pipeline
+##Final check before taxanomic assignment
+##function to calculate number of sequences
+getN <- function(x) sum(getUniques(x))
+
+##Calculate number of sequences
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), 
+               sapply(mergers, getN), rowSums(seqtab.nochim))
+
+##Vector column names
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+
+##Vector row names
+rownames(track) <- sample.names
+
+head(track)
+
+track_df <- as.data.frame(track)
+
+write_csv(track_df, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/ITS_raw_to_filtered_table.csv")
+
+```
+
+```{r}
+##Assign taxonomy Using Silva training database
+unite.ref <-"/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/UNITE_DB/sh_general_release_dynamic_19.02.2025.fasta" # CHANGE ME to location on your machine
+taxa <- assignTaxonomy(seqtab.nochim, unite.ref, multithread = TRUE, tryRC = TRUE)
+
+```
+
+```{r}
+##save taxonomy table as R object
+saveRDS(taxa, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/UNITE_DB/taxa_table.rds")
+
+##create fasta file of ASV's with count of ASV occurence as header
+sq <- getSequences(seqtab.nochim)
+id <- paste0("Abundance=", colSums(seqtab.nochim)) 
+names(sq) <- id 
+sq
+
+writeFasta(sq, file="/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/abundance_ASVs.fasta")
+
+##Write ASV and taxa tables to CSV file for table view, use these later for phyloseq instead of running everything again
+write.csv(seqtab.nochim, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/ASV_table.csv")
+write.csv(taxa, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/tax_table.csv")
+
+```
+
+```{r}
+##Check taxanomic assignment
+taxa.print <- taxa
+rownames(taxa.print)<- NULL
+head(taxa.print)
+```
+Compute key metrics for your materials and methods sectio (manually)
+```{r}
+#number of samples
+n_samples <- nrow(track)
+
+# Mean and SD of Input (Raw Reads)
+mean_input <- mean(track[, "input"])
+sd_input <- sd(track[, "input"]) #You can repeat this pattern for any column: "filtered", "merged", "nonchim", etc.
+
+# % Reads Retained After Chimera Removal
+percent_retained <- 100 * track[, "nonchim"] / track[, "input"]
+mean_retained <- mean(percent_retained)
+sd_retained <- sd(percent_retained)
+
+# ASVs per Sample
+asvs_per_sample <- rowSums(seqtab.nochim > 0)
+mean_asvs <- mean(asvs_per_sample)
+sd_asvs <- sd(asvs_per_sample)
+
+#Total Number of ASVs in Dataset
+n_asvs_total <- ncol(seqtab.nochim)
+
+
+```
+ 
+ Or with a function
+```{r}
+summarise_dada2_dataset <- function(track, seqtab.nochim) {
+  input_stats <- paste0(round(mean(track[, "input"])), " ± ", round(sd(track[, "input"])))
+  merged_stats <- paste0(round(mean(track[, "merged"])), " ± ", round(sd(track[, "merged"])))
+  nonchim_stats <- paste0(round(mean(track[, "nonchim"])), " ± ", round(sd(track[, "nonchim"])))
+  retained_percent <- 100 * track[, "nonchim"] / track[, "input"]
+  retained_stats <- paste0(round(mean(retained_percent), 2), "% ± ", round(sd(retained_percent), 2), "%")
+  asvs_per_sample <- rowSums(seqtab.nochim > 0)
+  asv_stats <- paste0(round(mean(asvs_per_sample)), " ± ", round(sd(asvs_per_sample)))
+  total_asvs <- ncol(seqtab.nochim)
+  
+  data.frame(
+    Samples = nrow(track),
+    Raw_Reads = input_stats,
+    Merged_Reads = merged_stats,
+    Nonchimeric_Reads = nonchim_stats,
+    Percent_Retained = retained_stats,
+    ASVs_per_Sample = asv_stats,
+    Total_ASVs = total_asvs
+  )
+}
+
+summary_table <-summarise_dada2_dataset(track, seqtab.nochim)
+
+summary_table
+# Save as CSV
+write.csv(summary_table, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/DADA2_summary_ITS.csv", row.names = FALSE)
+
+```
