@@ -1,6 +1,7 @@
 ---
-title: "hc_soil_16s"
-output: html_document
+title: "DADA2 pre-processing of 16S sequences"
+author: "Katherine Hinton"
+output: "html_document"
 date: "2025-06-05"
 ---
 
