@@ -1,0 +1,332 @@
+---
+title: "hc_soil_16s"
+output: html_document
+date: "2025-06-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dada2); packageVersion("dada2")
+library(devtools)
+library(ShortRead)
+library(phyloseq); packageVersion("phyloseq")
+library(Biostrings); packageVersion("Biostrings")
+library(ggplot2); packageVersion("ggplot2")
+library(vegan)
+library(tidyverse)
+library(ggpubr)
+library(plyr); packageVersion("plyr")
+library(microbiome)
+
+options(bitmapType='cairo')
+
+```
+
+```{r}
+##path to directory with reads 
+##reads with barcode and primer removed
+##Unzip all files first
+setwd("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Raw")
+path <- "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Raw"
+list.files(path)
+
+```
+
+```{r}
+#sort files so that forward and reverse file names are recognised
+fnFs <- sort(list.files(path, pattern="_1.fastq", full.names= TRUE))
+fnRs <- sort(list.files(path, pattern="_2.fastq", full.names= TRUE))
+fnFs
+fnRs
+
+##Extract smaple name using basename 
+sample.names <- sapply(strsplit(basename(fnFs), "_1"), `[`, 1)
+sample.names
+```
+
+```{r}
+##plot quality profiles 
+#options(bitmapType='cairo')
+plotQualityProfile(fnFs[60:64])
+r<-plotQualityProfile(fnRs[1:1])
+
+f
+r
+
+```
+
+```{r}
+#finidng the exact bp where the median score dips for forward reads
+qp <- plotQualityProfile(fnFs[99])   # or however you constructed the ggplot object
+gp <- ggplot_build(qp)              # build it, producing gp$data[[…]] with seven layers
+
+# Layer 2 is the one with the median curve (turquoise, varying y‐range).
+median_layer_index <- 2
+
+# (1) Extract just the cycle (x) and median (y) columns from Layer 2:
+median_df <- gp$data[[median_layer_index]][, c("x", "y")]
+
+# (2) Rename columns for clarity:
+colnames(median_df) <- c("cycle", "median")
+
+# (3) Optionally, view the first few rows:
+head(median_df)
+
+
+# (1) Define your window of interest:
+window_start <- 150
+window_end   <- 240
+
+# (2) Subset the data frame to that cycle range:
+window_df <- median_df[ median_df$cycle >= window_start & median_df$cycle <= window_end, ]
+
+# (3) Find the row index at which 'median' is smallest:
+dip_row_index <- which.min(window_df$median)
+
+# (4) Extract the cycle number and median‐value at that index:
+dip_cycle <- window_df$cycle[dip_row_index]
+dip_value <- window_df$median[dip_row_index]
+
+# (5) Print the result:
+cat(
+  "Between cycles", window_start, "and", window_end, 
+  "the median Phred score is lowest at cycle", dip_cycle, 
+  "with median Q =", dip_value, "\n"
+)
+
+```
+Determining the worst case dip across all 100 forward reads
+```{r}
+
+# 1. Capture the quality summary for each sample:
+#    We build a list of `ggplot2` objects—one per sample, but only to extract data.
+qp_list <- lapply(fnFs, plotQualityProfile)  # returns 100 ggplot objects
+
+# 2. For each sample, build the ggplot to get data, then extract layer 2 (median):
+dip_info <- t(sapply(qp_list, function(qp) {
+  gp <- ggplot_build(qp)          # unpack the ggplot
+  med_df <- gp$data[[2]][, c("x","y")]     
+  #   x = cycle, y = median
+  colnames(med_df) <- c("cycle", "median")
+  # Find global minimum of median across all cycles:
+  global_idx <- which.min(med_df$median)
+  c(dip_cycle = med_df$cycle[global_idx],
+    dip_Q     = med_df$median[global_idx])
+}))
+
+# 3. Convert to a data.frame with sample names:
+dip_info <- as.data.frame(dip_info)
+rownames(dip_info) <- basename(fnFs)
+
+# 4. Summarize how many samples dip to which Q:
+table(dip_info$dip_Q)
+# e.g., could print:
+#  26   28   30 
+#  12    7   81  
+
+# 5. Summarize the dip‐cycle values:
+summary(dip_info$dip_cycle)
+# e.g.:
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#   174     178     180     180    182     185  
+
+```
+
+Filter and trim
+```{r}
+##create subdirectory for filtered reads and assign filtered name
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+##asign filtered names
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+```
+
+```{r}
+##carry out filtering with parameters 
+##trunclen may be a problem for ITS reads due to big variation in length of the loci, so you can omit it.
+##Forward and reverse reads may be around 150bp (16s V4) to form a ~300bp fragment
+##trimming and filtering must account for this
+##FIGARO is a software which can be used to determine optimum trimming and filtering conditions but can only be used if
+#the sequences are the same length??
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, 
+                     truncLen=c(180,220), #why these numbers? CHeck quality scores on graphs
+                     maxN=0, maxEE=1, truncQ=2, rm.phix=TRUE,
+                     compress=TRUE, multithread=TRUE)       # On Windows set multithread=FALSE
+
+head(out)
+
+```
+
+```{r}
+##Calculation of error rates using machine learning = learn error rates using parametric error model
+errF <- learnErrors(filtFs, multithread = TRUE, randomize   = TRUE)
+errR <- learnErrors(filtRs, multithread = TRUE, randomize   = TRUE,)
+
+##No files means parameters didnt work for trimming and filtering
+plotErrors(errF, nominalQ=TRUE, )
+plotErrors(errR, nominalQ=TRUE)
+```
+
+```{r}
+##Dereplication 
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+
+#Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+```
+
+```{r}
+##Rerun fastqc after filtering and trimming 
+
+##Run denoising algorithm which utilises data from the error 
+dadaFs <- dada(derepFs, err=errF, multithread = TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread = TRUE)
+
+##inspect dada2-class object to look at number of unique sequneces
+dadaFs[[1]]
+dadaRs[[1]]
+
+```
+
+```{r}
+##Merge forward and reverse paired reads for full denoised sequence.
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
+head(mergers[[1]])
+
+##Make sequence table
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+
+##Inspect sequence length (they should be within the expected size range ~350bp before trimming)
+table(nchar(getSequences(seqtab)))
+```
+
+```{r}
+##Remove chimeras - this is easier to do after dnoising and creating ASV's as opposed to OTU's
+seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus", multithread = TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+head(seqtab.nochim)
+
+##Remaining sequneces after chimera removal?
+sum(seqtab.nochim)/sum(seqtab)
+```
+
+```{r}
+##Check number of reads that has passed through each step of the pipeline
+##Final check before taxanomic assignment
+##function to calculate number of sequences
+getN <- function(x) sum(getUniques(x))
+
+##Calculate number of sequences
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), 
+               sapply(mergers, getN), rowSums(seqtab.nochim))
+
+##Vector column names
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+
+##Vector row names
+rownames(track) <- sample.names
+
+head(track)
+
+```
+
+```{r}
+##Assign taxonomy Using Silva training database
+taxa <- assignTaxonomy(seqtab.nochim, 
+                       "/rds/projects/j/jacksorw-66837/sequencing_working_dir/silva_nr99_v138.2_toGenus_trainset.fa.gz",
+                       multithread = TRUE)
+
+##Also use Silva species assignment to get species level assigmnet with 100% matching ASV's (optional)
+taxa <- addSpecies(taxa,"/rds/projects/j/jacksorw-66837/sequencing_working_dir/silva_v138.2_assignSpecies.fa.gz")
+
+```
+
+```{r}
+##save taxonomy table as R object
+saveRDS(taxa, "/rds/projects/j/jacksorw-66837/hc_chapter/microbiome/HC_16S/novogene_trimmed/soil/filtered/taxa_table.rds")
+
+##create fasta file of ASV's with count of ASV occurence as header
+sq <- getSequences(seqtab.nochim)
+id <- paste0("Abundance=", colSums(seqtab.nochim)) 
+names(sq) <- id 
+sq
+
+writeFasta(sq, file="/rds/projects/j/jacksorw-66837/hc_chapter/microbiome/HC_16S/novogene_trimmed/soil/filtered/abundance_ASVs.fasta")
+
+##Write ASV and taxa tables to CSV file for table view, use these later for phyloseq instead of running everything again
+write.csv(seqtab.nochim, "/rds/projects/j/jacksorw-66837/hc_chapter/microbiome/HC_16S/novogene_trimmed/soil/filtered/ASV_table.csv")
+write.csv(taxa, "/rds/projects/j/jacksorw-66837/hc_chapter/microbiome/HC_16S/novogene_trimmed/soil/filtered/tax_table.csv")
+
+```
+
+```{r}
+##Check taxanomic assignment
+taxa.print <- taxa
+rownames(taxa.print)<- NULL
+head(taxa.print)
+```
+
+Compute key metrics for your materials and methods sectio (manually)
+```{r}
+#number of samples
+n_samples <- nrow(track)
+
+# Mean and SD of Input (Raw Reads)
+mean_input <- mean(track[, "input"])
+sd_input <- sd(track[, "input"]) #You can repeat this pattern for any column: "filtered", "merged", "nonchim", etc.
+
+# % Reads Retained After Chimera Removal
+percent_retained <- 100 * track[, "nonchim"] / track[, "input"]
+mean_retained <- mean(percent_retained)
+sd_retained <- sd(percent_retained)
+
+# ASVs per Sample
+asvs_per_sample <- rowSums(seqtab.nochim > 0)
+mean_asvs <- mean(asvs_per_sample)
+sd_asvs <- sd(asvs_per_sample)
+
+#Total Number of ASVs in Dataset
+n_asvs_total <- ncol(seqtab.nochim)
+
+
+```
+ 
+ Or with a function
+```{r}
+summarise_dada2_dataset <- function(track, seqtab.nochim) {
+  input_stats <- paste0(round(mean(track[, "input"])), " ± ", round(sd(track[, "input"])))
+  merged_stats <- paste0(round(mean(track[, "merged"])), " ± ", round(sd(track[, "merged"])))
+  nonchim_stats <- paste0(round(mean(track[, "nonchim"])), " ± ", round(sd(track[, "nonchim"])))
+  retained_percent <- 100 * track[, "nonchim"] / track[, "input"]
+  retained_stats <- paste0(round(mean(retained_percent), 2), "% ± ", round(sd(retained_percent), 2), "%")
+  asvs_per_sample <- rowSums(seqtab.nochim > 0)
+  asv_stats <- paste0(round(mean(asvs_per_sample)), " ± ", round(sd(asvs_per_sample)))
+  total_asvs <- ncol(seqtab.nochim)
+  
+  data.frame(
+    Samples = nrow(track),
+    Raw_Reads = input_stats,
+    Merged_Reads = merged_stats,
+    Nonchimeric_Reads = nonchim_stats,
+    Percent_Retained = retained_stats,
+    ASVs_per_Sample = asv_stats,
+    Total_ASVs = total_asvs
+  )
+}
+
+summary_table <-summarise_dada2_dataset(track, seqtab.nochim)
+
+summary_table
+# Save as CSV
+write.csv(summary_table, "/rds/projects/j/jacksorw-66837/hc_chapter/microbiome/HC_16S/DADA2_summary_HC_16S_soil.csv", row.names = FALSE)
+
+```
+
