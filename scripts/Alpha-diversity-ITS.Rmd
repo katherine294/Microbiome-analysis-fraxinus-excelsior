@@ -32,7 +32,6 @@ library(microbiomeutilities) # theme_biome_utils
 library(phyloseq)
 library(tidyverse)
 library(Biostrings)
-library(ggpubr)
 library(phytools)
 library(rstatix)
 
