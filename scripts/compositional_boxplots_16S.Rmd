@@ -1,0 +1,136 @@
+---
+title: "filtered_composition"
+output: html_document
+date: "2025-08-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+`## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(phyloseq)
+library(ALDEx2)
+library(dplyr)
+library(ggplot2)
+library(tibble)
+library(microViz)
+library(microbiomeutilities) # For taxa_summary
+library(readr)
+library(ape)
+library(phytools)
+
+options(bitmapType='cairo')
+
+```
+
+Load data using phyloseq
+```{r, include=FALSE}
+#read metadata
+dataset <- read.csv("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/Metadata_microbiome.csv")
+rownames(dataset) <- dataset$Sample_name        ##Rownames may not be recognised (used sample_names() to check)
+dataset[] <- lapply(dataset, as.factor)
+
+#read taxa, if starting fro here
+taxa <- (read.csv("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Raw/tax_table_16S.csv"))
+taxa <- taxa %>% 
+  tibble::column_to_rownames("X")
+taxa <-as.matrix(taxa)
+
+#load ASV table, if starting from here
+library(data.table)
+seqtab.nochim <- fread("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Raw/ASV_table_16s.csv")
+seqtab.nochim <- seqtab.nochim %>% 
+  tibble::column_to_rownames("V1")
+seqtab.nochim <- otu_table(seqtab.nochim , taxa_are_rows=FALSE)
+
+##Create phyloseq object. Sample data needs to provide information about the samples
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), sample_data(dataset), tax_table(taxa))
+
+##Assign the taxa names instead of DNA sequences to the OTU table and DNA sequneces as reference sequences
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names <- paste0("ASV", seq(ntaxa(ps)))
+ps
+
+#subsetting to remove mitochondria and chloroplast
+ps.clean = subset_taxa(ps, Order != "Chloroplast" & Family != "Mitochondria")
+
+tree <- read.tree("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_fasttree_030225.nwk")
+print(tree)
+
+# Tree must be rooted for Fait's PD index. Root the tree using midpoint rooting. I used a random outgroup from my dataset.
+tree_rooted <- midpoint.root(tree) # Root the tree
+
+is.rooted(tree_rooted) #check if it worked
+
+ps.clean <- merge_phyloseq(ps.clean, phy_tree(tree_rooted)) #merge to phyloseq object 
+
+pseq <- ps.clean
+
+ps_filtered01 <- prune_samples(sample_sums(pseq) >= 1000, pseq)
+
+sample_data(ps_filtered01)$Site_Tree <- factor(paste(sample_data(ps_filtered01)$Site, sample_data(ps_filtered01)$Tree, sep = "_"))
+
+sample_data(ps_filtered01)$Site_Tissue <- factor(paste(sample_data(ps_filtered01)$Site, sample_data(ps_filtered01)$Tissue_health, sep = "_"))
+```
+
+Order samples for barplot
+```{r}
+lkd <- c(
+  "LA1B116S", "LA1B216S", "LA1B316S", "LA1B416S", "LA1B516S", "LA1B616S",
+  "LA2B116S", "LA2B216S", "LA2B316S", "LA2B416S", "LA2B516S", "LA2B616S",
+  "LA3B216S", "LA3B316S", "LA3B416S", "LA3B516S", "LA3B616S",
+  "LA4B116S", "LA4B216S", "LA4B316S", "LA4B416S", "LA4B516S", "LA4B616S",
+  "LA5B116S", "LA5B216S", "LA5B316S", "LA5B416S", "LA5B516S", "LA5B616S",
+  "LA6B116S", "LA6B216S", "LA6B316S", "LA6B416S", "LA6B516S", "LA6B616S", "LA6B716S",
+  "LA7B116S", "LA7B216S", "LA7B316S",
+  "LA8B116S", "LA8B216S", "LA8B316S",
+  "LA9B116S", "LA9B216S", 
+  "LA10B116S", "LA10B216S", "LA10B316S",
+  "LA11B116S", "LA11B316S",
+  "LA12B116S", "LA12B216S", "LA12B316S"
+)
+
+
+w_order <- c(
+  "WA1B116S", "WA1B216S", "WA1B316S", "WA1B416S", "WA1B516S", "WA1B616S",
+  "WA2B116S", "WA2B216S", "WA2B316S", "WA2B416S", "WA2B516S", "WA2B616S",
+  "WA3B116S", "WA3B216S", "WA3B316S", "WA3B416S", "WA3B516S", "WA3B616S",
+  "WA4B116S", "WA4B216S", "WA4B316S", "WA4B416S", "WA4B516S", "WA4B616S",
+  "WA5B116S", "WA5B216S", "WA5B316S", "WA5B416S", "WA5B516S", "WA5B616S",
+  "WA7B116S", "WA7B216S", "WA7B316S",
+  "WA8B116S", "WA8B216S", "WA8B316S",
+  "WA9B116S", "WA9B216S", "WA9B316S",
+  "WA10B116S", "WA10B216S", "WA10B316S",
+  "WA11B116S", "WA11B216S", "WA11B316S",
+  "WA12B116S", "WA12B216S", "WA12B316S")
+
+# Combine your sample IDs into one desired order
+ordered_ids <- c(lkd, w_order)
+
+```
+
+Filtering 
+```{r}
+# 1. Prevalence filtering for beta and differential abnudance testing - HIGHLY RECOMMENDED --------
+# Get total number of samples
+total_samples <- nsamples(ps_filtered01)
+# Define minimum number of samples a taxon must be present in (e.g. ≥10% = 0.1)
+min_prevalence <- ceiling(0.05 * total_samples)
+# Filter taxa based on prevalence
+ps_filtered02 <- filter_taxa(ps_filtered01, function(x) sum(x > 0) >= min_prevalence, prune = TRUE)
+
+# Check how many taxa you removed
+cat("Before filtering:", ntaxa(ps), "taxa\n") # 18308
+cat("After filtering:", ntaxa(pseq), "taxa\n") # 18,308
+cat("After filtering:", ntaxa(ps_filtered01), "taxa\n") # 11,931
+cat("After filtering:", ntaxa(ps_filtered02), "taxa\n") #  4506 taxa
+```
