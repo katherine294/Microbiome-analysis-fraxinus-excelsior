@@ -1,5 +1,5 @@
 --
-title: "beta-final"
+title: "beta-diversity 16s rRNA"
 output: html_document
 date: "2025-08-06"
 ---
@@ -20,11 +20,7 @@ library("ape")
 library("phytools")
 library(readr)
 options(bitmapType='cairo')
-
-
 ```
-
-
 
 Load data using phyloseq
 ```{r}
@@ -72,6 +68,7 @@ ps.clean <- merge_phyloseq(ps.clean, phy_tree(tree_rooted)) #merge to phyloseq o
 ps <- ps.clean
 
 ```
+
 Filtering 
 ```{r}
 # 1. OPTIONAL !!! Prune to X (e.g. 1,000) read depth - i had a weird sample with only 450 that was skewing results --------
@@ -115,7 +112,100 @@ Transforming data
 ps0 <- microbiome::transform(ps_filtered01,"compositional")
 ```
 
+Ordination plots
 ```{r}
+ordu = ordinate(ps0, "PCoA", "bray")
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+
+ordu = ordinate(ps0, "PCoA", "unifrac")
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+
 ordu = ordinate(ps0, "PCoA", "wunifrac")
-plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse()
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+```
+
+Run individual PERMANOVA, full model, pairwise posthoc tests
+```
+# Prepare dataset
+ps0 <- microbiome::transform(ps_filtered01, "compositional")
+meta <- meta(ps0)
+
+# Define output directory
+out_dir <- "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Figures"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Function to extract adonis2 results
+extract_adonis_results <- function(adonis_res, factor_name) {
+  df <- as.data.frame(adonis_res)[1, , drop = FALSE]
+  df$Factor <- factor_name
+  df %>% select(Factor, Df, SumOfSqs, R2, F, `Pr(>F)`)
+}
+
+# Function to run PERMANOVA tests for a given distance method
+run_permanova_set <- function(ps, meta, method, out_dir) {
+  cat("Running PERMANOVA for:", method, "\n")
+  
+  dist <- phyloseq::distance(ps, method = method)
+  
+  # Individual tests
+  permanovas <- list(
+    Tissue_health = adonis2(dist ~ Tissue_health, data = meta, permutations = 9999),
+    Tissue_health_Site = adonis2(dist ~ Tissue_health, strata = meta$Site, data = meta, permutations = 9999),
+    Site = adonis2(dist ~ Site, data = meta, permutations = 9999),
+    Site_Tree = adonis2(dist ~ Site_Tree, data = meta, permutations = 9999),
+    ReadDepth = adonis2(dist ~ ReadDepth, data = meta, permutations = 9999),
+    adb_score = adonis2(dist ~ adb_score, data = meta, permutations = 9999)
+  )
+  
+  combined_df <- bind_rows(
+    extract_adonis_results(permanovas$Tissue_health, "Tissue_health"),
+    extract_adonis_results(permanovas$Tissue_health_Site, "Tissue_health (stratified by Site)"),
+    extract_adonis_results(permanovas$Site, "Site"),
+    extract_adonis_results(permanovas$Site_Tree, "Site_Tree"),
+    extract_adonis_results(permanovas$ReadDepth, "ReadDepth"),
+    extract_adonis_results(permanovas$adb_score, "adb_score")
+  )
+  
+  write_csv(combined_df, file.path(out_dir, paste0(method, "_permanova_individual_models.csv")))
+  
+  # Full model
+  full_model <- adonis2(
+    dist ~ Site_Tree + Site + ReadDepth + Tissue_health + adb_score + Site_Tree:Tissue_health,
+    data = meta, permutations = 9999, by = "term"
+  )
+  full_model_df <- as.data.frame(full_model) %>%
+    tibble::rownames_to_column("Term")
+  write_csv(full_model_df, file.path(out_dir, paste0(method, "_permanova_full_model.csv")))
+  
+  # Dispersion tests
+  disp_list <- list(
+    Site = betadisper(dist, meta$Site),
+    Tissue_health = betadisper(dist, meta$Tissue_health),
+    Site_Tree = betadisper(dist, meta$Site_Tree)
+  )
+  
+  permute_dfs <- lapply(names(disp_list), function(group) {
+    perm <- permutest(disp_list[[group]])
+    df <- as.data.frame(perm$tab)
+    df$Group <- group
+    df
+  })
+  
+  permute_all_df <- bind_rows(permute_dfs)
+  write_csv(permute_all_df, file.path(out_dir, paste0(method, "_dispersion_tests.csv")))
+  
+  # Pairwise PERMANOVA examples (adjust as needed)
+  pairwise1 <- pairwise.adonis(dist, factors = meta$Tissue_health)
+  pairwise2 <- pairwise.adonis(dist, factors = meta$Site)
+  
+  write.csv(pairwise1, file.path(out_dir, paste0(method, "_pairwise_tissue.csv")), row.names = TRUE)
+  write.csv(pairwise2, file.path(out_dir, paste0(method, "_pairwise_site.csv")), row.names = TRUE)
+  
+  cat("Completed:", method, "\n\n")
+}
+
+# Run for all desired distance metrics
+methods <- c("wunifrac", "unifrac", "bray")
+for (m in methods) run_permanova_set(ps0, meta, m, out_dir)
+
 ```
