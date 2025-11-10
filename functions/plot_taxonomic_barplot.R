@@ -1,6 +1,12 @@
-plot_taxonomic_barplot <- function(ps_obj, taxrank, n_taxa = 20, file_suffix = NULL, 
-                                   width = 10, height = 8, unknowns = c("Incertae Sedis", "NA", "Unknown family"),
-                                   facet_var = "Tissue_health", sample_order = ordered_ids) {
+plot_taxonomic_barplot <- function(ps_obj, taxrank, out_dir,
+                                   n_taxa = 20, file_suffix = NULL, 
+                                   width = 10, height = 8,
+                                   unknowns = c("Incertae Sedis", "NA", "Unknown family"),
+                                   facet_var = "Tissue_health",
+                                   sample_order = ordered_ids) {
+  
+  # Create directory if it doesn't exist
+  if (!dir.exists(out_dir)) dir.create(out_dir, recursive = TRUE)
   
   # Clean taxonomy labels
   ps_obj <- tax_fix(ps_obj,
@@ -27,9 +33,9 @@ plot_taxonomic_barplot <- function(ps_obj, taxrank, n_taxa = 20, file_suffix = N
   # Create file name suffix if none provided
   if (is.null(file_suffix)) file_suffix <- tolower(taxrank)
   
-  # Create output paths
-  pdf_path <- sprintf("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/composition_barplots/test_scripts/barplot_test_%s.pdf", file_suffix)
-  csv_path <- sprintf("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/composition_barplots/test_scripts/%s_taxa_summary_test.csv", file_suffix)
+  # Create output paths dynamically using out_dir
+  pdf_path <- file.path(out_dir, paste0("barplot_", file_suffix, ".pdf"))
+  csv_path <- file.path(out_dir, paste0(file_suffix, "_taxa_summary.csv"))
   
   # Open PDF
   pdf(pdf_path, width = width, height = height)
