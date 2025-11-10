@@ -1,2 +1,10 @@
 # Microbiome-analysis-fraxinus-excelsior
-Pseudomonas savastanoi pv. fraxini infects ash (Fraxinus excelsior), causing bark cankers and necrosis. This study investigates the impact of bacterial infection on the host microbiome and health
+##Pseudomonas savastanoi pv. fraxini infects ash (Fraxinus excelsior), causing bark cankers and necrosis. This study investigates the impact of bacterial infection on the host microbiome and overall tree health.
+
+**Background:** Pseudomonas savastanoi pv. fraxini (Psf) infects ash (Fraxinus excelsior), leading to bark cankers and necrotic lesions. The European ash landscape is undergoing rapid change due to a combination of abiotic pressures, such as climate change, and biotic stresses including ash dieback (Hymenoscyphus fraxineus) and the emerald ash borer (Agrilus planipennis). Despite the ecological and economic importance of ash, the microbiome of its bark—a vast and dynamic microbial habitat—has received little attention.
+
+Psf can persist for several years within cankerous tissue, suggesting a long-term interaction with its host and potential co-evolutionary dynamics. However, it remains unclear whether Psf infection has systemic effects on the host’s microbiome and physiology, or how it interacts with other biotic stressors such as ash dieback. Understanding these relationships is critical for predicting how multiple stress factors may influence ash health and resilience.
+
+**Summary:** Sampling was conducted across two woodland sites affected by bacterial canker. At each site, bark tissue was collected from healthy, symptomatic, and asymptomatic trees to capture microbiome variation associated with disease status. Targeted amplicon sequencing of bacterial 16S rRNA and fungal ITS1–4 regions was performed on DNA extracted from these samples. Microbial community diversity, composition, and relative abundance were compared across tissue types to identify shifts linked to infection and symptom severity.
+
+This study provides one of the first assessments of the ash bark microbiome and offers insight into how pathogenic infection may restructure microbial communities and influence host health under multiple environmental stressors.
