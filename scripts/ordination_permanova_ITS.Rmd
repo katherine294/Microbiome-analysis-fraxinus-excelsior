@@ -105,7 +105,19 @@ head(sample_data(ps_filtered01)$ReadDepth)
 head(sample_data(ps_filtered01)$ReadDepth_z)
 ```
 
-# Run individual PERMANOVA, full model, pairwise posthoc tests
+Ordination plots
+```{r}
+ordu = ordinate(ps0, "PCoA", "bray")
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+
+ordu = ordinate(ps0, "PCoA", "unifrac")
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+
+ordu = ordinate(ps0, "PCoA", "wunifrac")
+plot_ordination(ps0, ordu, color="Tissue_health", shape = "Site")  + scale_colour_brewer(palette="Paired") + geom_point(size=3) +stat_ellipse() + theme_bw()
+```
+
+Run individual PERMANOVA, full model, pairwise posthoc tests
 ```
 # Prepare dataset
 ps0 <- microbiome::transform(ps_filtered01, "compositional")
