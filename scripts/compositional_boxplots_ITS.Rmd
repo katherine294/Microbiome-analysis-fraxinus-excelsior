@@ -168,7 +168,7 @@ for (lvl in tax_levels) {
   plot_top_taxa_by_group(
     ps_filtered02, 
     tax_level = lvl, 
-    top_n = 20, 
+    top_n = 20, # change this to the number of taxa you want to present
     out_dir = "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/composition_barplots/"
   )
 }
