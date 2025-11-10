@@ -134,3 +134,47 @@ cat("After filtering:", ntaxa(pseq), "taxa\n") # 18,308
 cat("After filtering:", ntaxa(ps_filtered01), "taxa\n") # 11,931
 cat("After filtering:", ntaxa(ps_filtered02), "taxa\n") #  4506 taxa
 ```
+
+Run plot_taxonomic_barplot function for each level - change output directpry in function.
+```{r}
+# Define a common output directory
+out_dir <- "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Figures/composition_barplots/"
+
+# Plot at multiple taxonomic levels
+plot_taxonomic_barplot(ps_filtered02, "Phylum", n_taxa = 15, out_dir = out_dir)
+plot_taxonomic_barplot(ps_filtered02, "Class", n_taxa = 15, out_dir = out_dir)
+plot_taxonomic_barplot(ps_filtered02, "Order", n_taxa = 15, out_dir = out_dir)
+plot_taxonomic_barplot(ps_filtered02, "Family", n_taxa = 20, out_dir = out_dir)
+plot_taxonomic_barplot(ps_filtered02, "Genus", n_taxa = 30, out_dir = out_dir)
+
+```                      
+
+Make barplot comparing compositional data between tissue health - top most abundant only. 
+```{r}
+tax_levels <- c("Phylum", "Class", "Order", "Family", "Genus")
+
+for (lvl in tax_levels) {
+  plot_top_taxa_by_group(
+    ps_filtered02, 
+    tax_level = lvl, 
+    top_n = 20, # change this to the number of taxa you want to present
+    out_dir = "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Figures/composition_barplots/"
+  )
+}
+```
+
+
+Extract specific taxta
+```{r}
+# Get taxa for Pseudomonas at Genus level
+pseudomonas_taxa <- taxa_names(pseq_filt)[tax_table(pseq_filt)[, "Genus"] == "Pseudomonas"]
+
+# Subset phyloseq object to just Pseudomonas
+pseq_pseudo <- prune_taxa(pseudomonas_taxa, pseq_filt)
+
+# Extract abundance table (already compositional, so values = proportions)
+pseudo_df <- data.frame(
+  SampleID = sample_names(pseq_pseudo),
+  Pseudomonas_RA = sample_sums(pseq_pseudo) # sum per sample (relative abundance)
+)
+```
