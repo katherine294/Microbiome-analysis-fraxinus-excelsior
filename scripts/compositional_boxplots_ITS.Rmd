@@ -145,7 +145,7 @@ cat("After filtering:", ntaxa(ps_filtered01), "taxa\n") # 2306
 cat("After filtering:", ntaxa(ps_filtered02), "taxa\n") #  656  taxa
 ```
 
-Run plot_taxonomic_barplot function for each level - saved in functions dir
+Run plot_taxonomic_barplot function for each level - change output directpry in function.
 ```{r}
 # requirements
 library(phyloseq)
