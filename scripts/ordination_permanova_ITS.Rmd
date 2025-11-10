@@ -1,0 +1,192 @@
+---
+title: "beta-diversity-ITS"
+output: html_document
+date: "2025-08-06"
+---
+
+```{r}
+library("phyloseq")
+library("ggplot2")      # graphics
+library("vegan")
+library("microbiome")
+library("RColorBrewer")
+library("dplyr")
+library("pairwiseAdonis")
+library("ape")
+library("phytools")
+library("readr")
+library("tidyverse")
+
+options(bitmapType='cairo')
+```
+
+Load data using phyloseq
+```{r, include=FALSE}
+#read metadata
+dataset <- read.csv("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/Metadata_microbiome.csv")
+rownames(dataset) <- dataset$Sample_name        ##Rownames may not be recognised (used sample_names() to check)
+dataset[] <- lapply(dataset, as.factor)
+
+#read taxa, created using the DADA2 pipeline
+taxa <- (read.csv("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/tax_table.csv"))
+taxa <- taxa %>% 
+  tibble::column_to_rownames("X")
+taxa <-as.matrix(taxa)
+
+#load ASV table, created using DADA2 pipeline
+library(data.table)
+seqtab.nochim <- fread("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/ASV_table.csv")
+seqtab.nochim <- seqtab.nochim %>% 
+  tibble::column_to_rownames("V1")
+
+common_samples <- intersect(rownames(dataset), rownames(seqtab.nochim))
+dataset_filt <- dataset[common_samples, , drop = FALSE]
+seqtab_filt <- seqtab.nochim[common_samples, , drop = FALSE]
+
+##Create phyloseq object. Sample data needs to provide information about the samples
+ps <- phyloseq(otu_table(seqtab.nochim, taxa_are_rows=FALSE), sample_data(dataset_filt), tax_table(taxa))
+
+##Assign the taxa names instead of DNA sequences to the OTU table and DNA sequneces as reference sequences
+dna <- Biostrings::DNAStringSet(taxa_names(ps))
+names(dna) <- taxa_names(ps)
+ps <- merge_phyloseq(ps, dna)
+taxa_names(ps) <- paste0("ASV", seq(ntaxa(ps)))
+ps
+
+taxa_names(ps)
+
+tree <- read.tree("/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Analysis/ITS_ASV_fasttreE.nwk")
+print(tree)
+
+# Tree must be rooted for Fait's PD index. Root the tree using midpoint rooting. I used a random outgroup from my dataset.
+tree_rooted <- midpoint.root(tree) # Root the tree
+is.rooted(tree_rooted) #check if it worked
+
+ps_tree <- merge_phyloseq(ps, phy_tree(tree_rooted)) #merge to phyloseq object 
+
+taxa_names(ps_tree)
+
+sample_data(ps_tree)$Site_Tree <- factor(paste(sample_data(ps_tree)$Site, sample_data(ps_tree)$Tree, sep = "_"))
+
+# OPTIONAL !!! Prune to X (e.g. 1,000) read depth - i had a weird sample with only 450 that was skewing results --------
+ps_filt <- prune_samples(sample_sums(ps_tree) >= 1000, ps_tree)
+
+# Keep ASVs with ≥10 total reads across all samples
+ps_filtered01 <- prune_taxa(taxa_sums(ps_filt) >= 10, ps_filt)
+
+# Check how many taxa you removed
+cat("Before filtering:", ntaxa(ps), "taxa\n") # 4454 
+cat("After filtering:", ntaxa(ps_filt), "taxa\n") # 4454 
+#cat("After filtering:", ntaxa(ps1), "taxa\n") # 2306 
+# cat("After filtering:", ntaxa(ps_filtered02), "taxa\n") #  4506 taxa
+```
+
+Add metadata
+```{r}
+# Create a site_tree variable to test for tree 
+sample_data(ps_filtered01)$Site_Tree <- factor(paste(sample_data(ps_filtered01)$Site, sample_data(ps_filtered01)$Tree, sep = "_"))
+
+# Create a site_tree variable to test for tree 
+sample_data(ps_filtered01)$Site_Tissue <- factor(paste(sample_data(ps_filtered01)$Site, sample_data(ps_filtered01)$Tissue_health, sep = "_"))
+
+# Extract metadata as dataframe
+ps1.meta <- as(sample_data(ps_filtered01), "data.frame")
+
+# Add read depth and z-score normalization
+read_depth <- sample_sums(ps_filtered01)
+ps1.meta$ReadDepth <- read_depth[rownames(ps1.meta)]
+ps1.meta$ReadDepth_z <- scale(ps1.meta$ReadDepth)
+
+# Add back to phyloseq object
+sample_data(ps_filtered01) <- sample_data(ps1.meta)
+
+# Optional sanity check
+head(sample_data(ps_filtered01)$ReadDepth)
+head(sample_data(ps_filtered01)$ReadDepth_z)
+```
+
+# Run individual PERMANOVA, full model, pairwise posthoc tests
+```
+# Prepare dataset
+ps0 <- microbiome::transform(ps_filtered01, "compositional")
+meta <- meta(ps0)
+
+# Define output directory
+out_dir <- "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/ITS_Figures/TEST_SCRIPTS"
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Function to extract adonis2 results
+extract_adonis_results <- function(adonis_res, factor_name) {
+  df <- as.data.frame(adonis_res)[1, , drop = FALSE]
+  df$Factor <- factor_name
+  df %>% select(Factor, Df, SumOfSqs, R2, F, `Pr(>F)`)
+}
+
+# Function to run PERMANOVA tests for a given distance method
+run_permanova_set <- function(ps, meta, method, out_dir) {
+  cat("Running PERMANOVA for:", method, "\n")
+  
+  dist <- phyloseq::distance(ps, method = method)
+  
+  # Individual tests
+  permanovas <- list(
+    Tissue_health = adonis2(dist ~ Tissue_health, data = meta, permutations = 9999),
+    Tissue_health_Site = adonis2(dist ~ Tissue_health, strata = meta$Site, data = meta, permutations = 9999),
+    Site = adonis2(dist ~ Site, data = meta, permutations = 9999),
+    Site_Tree = adonis2(dist ~ Site_Tree, data = meta, permutations = 9999),
+    ReadDepth = adonis2(dist ~ ReadDepth, data = meta, permutations = 9999),
+    adb_score = adonis2(dist ~ adb_score, data = meta, permutations = 9999)
+  )
+  
+  combined_df <- bind_rows(
+    extract_adonis_results(permanovas$Tissue_health, "Tissue_health"),
+    extract_adonis_results(permanovas$Tissue_health_Site, "Tissue_health (stratified by Site)"),
+    extract_adonis_results(permanovas$Site, "Site"),
+    extract_adonis_results(permanovas$Site_Tree, "Site_Tree"),
+    extract_adonis_results(permanovas$ReadDepth, "ReadDepth"),
+    extract_adonis_results(permanovas$adb_score, "adb_score")
+  )
+  
+  write_csv(combined_df, file.path(out_dir, paste0(method, "_permanova_individual_models.csv")))
+  
+  # Full model
+  full_model <- adonis2(
+    dist ~ Site_Tree + Site + ReadDepth + Tissue_health + adb_score + Site_Tree:Tissue_health,
+    data = meta, permutations = 9999, by = "term"
+  )
+  full_model_df <- as.data.frame(full_model) %>%
+    tibble::rownames_to_column("Term")
+  write_csv(full_model_df, file.path(out_dir, paste0(method, "_permanova_full_model.csv")))
+  
+  # Dispersion tests
+  disp_list <- list(
+    Site = betadisper(dist, meta$Site),
+    Tissue_health = betadisper(dist, meta$Tissue_health),
+    Site_Tree = betadisper(dist, meta$Site_Tree)
+  )
+  
+  permute_dfs <- lapply(names(disp_list), function(group) {
+    perm <- permutest(disp_list[[group]])
+    df <- as.data.frame(perm$tab)
+    df$Group <- group
+    df
+  })
+  
+  permute_all_df <- bind_rows(permute_dfs)
+  write_csv(permute_all_df, file.path(out_dir, paste0(method, "_dispersion_tests.csv")))
+  
+  # Pairwise PERMANOVA examples (adjust as needed)
+  pairwise1 <- pairwise.adonis(dist, factors = meta$Tissue_health)
+  pairwise2 <- pairwise.adonis(dist, factors = meta$Site)
+  
+  write.csv(pairwise1, file.path(out_dir, paste0(method, "_pairwise_tissue.csv")), row.names = TRUE)
+  write.csv(pairwise2, file.path(out_dir, paste0(method, "_pairwise_site.csv")), row.names = TRUE)
+  
+  cat("Completed:", method, "\n\n")
+}
+
+# Run for all desired distance metrics
+methods <- c("wunifrac", "unifrac", "bray")
+for (m in methods) run_permanova_set(ps0, meta, m, out_dir)
+
+```
