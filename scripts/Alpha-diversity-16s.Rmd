@@ -10,7 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r, include=FALSE}
-
 library(knitr)
 library(microbiome) # For alpha-diversity measures
 library(phytools)
@@ -115,253 +114,35 @@ levels(ps1.meta$Tissue_health)
 ```
 
 
-## Shannon's diversity ##
+Run linear model, anova, emmeans post-hoc and tests for normality on each alpha-metric (using analyse_alpha_diversity function)
+
 ```{r}
-
-# View distribution by site and tissue health with boxplot
-mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
-
-plot_s <- ggplot(ps1.meta, aes(x = Tissue_health, y = diversity_shannon)) +
-    geom_boxplot(aes(fill = Site)) +
-  theme_minimal() +
-    geom_jitter(width = 0.05, alpha = 0.6) +
-    scale_fill_manual(values = mycols) +
-    scale_color_manual(values = mycols) +
-    theme(axis.text = element_text(size = 10, colour = "black"),
-           axis.line = element_line(color = "black"),
-          legend.position	= "none",
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1))
-
-plot_s
-
-# 1. Run linear mixed effects model
-m_shannon <- lmer(
-  diversity_shannon ~ Tissue_health + Site + ReadDepth_z + (1 | Site_Tree), data = ps1.meta) 
-
-print(m_shannon)
-
-# 2. Perform Type II ANOVA to evaluate fixed effects
-anova_shannon <- Anova(m_shannon, type = "II")
-print(anova_shannon)
-
-# Check normality, linearity, homogeneity plots
-check_model(m_shannon)  
-
-# Additional residual diagnostics using DHARMa
-simulation_output <- simulateResiduals(fittedModel = m_shannon)
-plot(simulation_output)
-
-# 4. Calculate marginal and conditional R²
-r2_results <- r2(m_shannon)
-print(r2_results)
-
-# Pairwise comparisons for Tissue_health - not needed as tissue health not significant
+res_shannon <- analyse_alpha_diversity(ps1.meta, "diversity_shannon")
+res_FPD <- analyse_alpha_diversity(ps1.meta, "Phylogenetic.PD", pairwise = TRUE)
+res_observed <- analyse_alpha_diversity(ps1.meta, "observed", pairwise = TRUE)
+res_evenness <- analyse_alpha_diversity(ps1.meta, "evenness_pielou")
+res_DDBP <- analyse_alpha_diversity(ps1.meta, "dominance_dbp")
 ```
 
-## Faith's Phylogenetic diversity ##
+Save ANOVA and post-hoc emmeans results into dataframe for supplementary figures (use results_to_df function)
 ```{r}
+# Combine ANOVA results
+anova_all <- bind_rows(
+  results_to_df(res_shannon, "Shannon diversity"),
+  results_to_df(res_FPD, "Faith's PD"),
+  results_to_df(res_DDBP, "Dominance DBP"),
+  results_to_df(res_evenness, "Evenness Pielou"),
+  results_to_df(res_observed, "Observed richness")
+)
 
-# View distribution by site and tissue health with boxplot
-mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
-
-plot_fpd <- ggplot(ps1.meta, aes(x = Tissue_health, y = Phylogenetic.PD)) +
-    geom_boxplot(aes(fill = Site)) +
-  theme_minimal() +
-    geom_jitter(width = 0.05, alpha = 0.6) +
-    scale_fill_manual(values = mycols) +
-    scale_color_manual(values = mycols) +
-    theme(axis.text = element_text(size = 10, colour = "black"),
-           axis.line = element_line(color = "black"),
-          legend.position	= "none",
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1))
-
-# 1. Run linear mixed effects model
-m_FPD <- lmer(
-  Phylogenetic.PD ~ Tissue_health + Site + ReadDepth_z + (1 | Site_Tree), data = ps1.meta) 
-
-summary(m_FPD)
-
-# 2. Perform Type II ANOVA to evaluate fixed effects
-anova_FPD <- Anova(m_FPD)
-print(anova_FPD)
-
-# Check normality, linearity, homogeneity plots
-check_model(m_FPD)  
-
-# Additional residual diagnostics using DHARMa
-simulation_output <- simulateResiduals(fittedModel = m_FPD)
-plot(simulation_output)
-
-# 3. Calculate marginal and conditional R²
-r2_results <- r2(m_FPD)
-r2_results
-
-# 4. Pairwise comparisons for Tissue_health
-p_FPD <- emmeans(m_FPD, pairwise ~ Tissue_health, adjust = "tukey")
-print(p_FPD)
-```
-
------------ ## Observed richness ## -------------
-```{r}
-
-# View distribution by site and tissue health with boxplot
-mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
-
-ggplot(ps1.meta, aes(x = Tissue_health, y = observed)) +
-    geom_boxplot(aes(fill = Site)) +
-  theme_minimal() +
-    geom_jitter(width = 0.05, alpha = 0.6) +
-    scale_fill_manual(values = mycols) +
-    scale_color_manual(values = mycols) +
-    theme(axis.text = element_text(size = 10, colour = "black"),
-           axis.line = element_line(color = "black"),
-          legend.position	= "none",
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1))
-
-# 1. Run linear mixed effects model
-m_observed <- lmer(
-  observed ~ Tissue_health + Site + ReadDepth_z + (1 | Site_Tree), data = ps1.meta) 
-
-summary(m_observed)
-
-# 2. Perform Type II ANOVA to evaluate fixed effects
-anova_observed <- Anova(m_observed)
-print(anova_observed)
-
-# Check normality, linearity, homogeneity plots
-check_model(m_observed)  
-
-# Additional residual diagnostics using DHARMa
-simulation_output <- simulateResiduals(fittedModel = m_observed)
-plot(simulation_output)
-
-# 3. Calculate marginal and conditional R²
-r2_results <- r2(m_observed)
-print(r2_results)
-
-# 4. Pairwise comparisons for Tissue_health
-p_oberved <- emmeans(m_observed, pairwise ~ Tissue_health, adjust = "tukey")
-print(p_oberved)
-```
-
-## Peilou's eveness - based on Shannon's index - NOT A GREAT MODEL FIT ##
-```{r}
-
-# View distribution by site and tissue health with boxplot
-mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
-
-ggplot(ps1.meta, aes(x = Tissue_health, y = evenness_pielou)) +
-    geom_boxplot(aes(fill = Site)) +
-  theme_minimal() +
-    geom_jitter(width = 0.05, alpha = 0.6) +
-    scale_fill_manual(values = mycols) +
-    scale_color_manual(values = mycols) +
-    theme(axis.text = element_text(size = 10, colour = "black"),
-           axis.line = element_line(color = "black"),
-          legend.position	= "none",
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1))
-
-# 1. Run linear mixed effects model
-m_evenness <- lmer(
-  evenness_pielou ~ Tissue_health + ReadDepth_z + Site + (1 | Site_Tree), data = ps1.meta)
-
-summary(m_evenness)
-
-# 2. Perform Type II ANOVA to evaluate fixed effects
-anova_evenness <- Anova(m_evenness)
-print(anova_evenness)
-
-# Check normality, linearity, homogeneity plots
-check_model(m_evenness)  
-
-# Additional residual diagnostics using DHARMa
-simulation_output <- simulateResiduals(fittedModel = m_evenness)
-plot(simulation_output)
-
-### Failed tests for normality and linearity 
-```
-
-## dominance_dbp - based on Shannon's index - NOT A GREAT MODEL FIT ##
-```{r}
-# View distribution by site and tissue health with boxplot
-mycols <- RColorBrewer::brewer.pal(n = 6, name = "Set2")
-
-ggplot(ps1.meta, aes(x = Tissue_health, y = dominance_dbp)) +
-    geom_boxplot(aes(fill = Site)) +
-  theme_minimal() +
-    geom_jitter(width = 0.05, alpha = 0.6) +
-    scale_fill_manual(values = mycols) +
-    scale_color_manual(values = mycols) +
-    theme(axis.text = element_text(size = 10, colour = "black"),
-           axis.line = element_line(color = "black"),
-          legend.position	= "none",
-    panel.grid = element_blank(),
-    panel.border = element_rect(color = "black", fill = NA, size = 1))
-
-# 1. Run linear mixed effects model
-m_DDBP <- lmer(
-  dominance_dbp ~ Tissue_health + Site + ReadDepth_z + (1 | Site_Tree), data = ps1.meta) 
-
-summary(m_DDBP)
-
-# 2. Perform Type II ANOVA to evaluate fixed effects
-anova_DDBP <- Anova(m_DDBP)
-print(anova_DDBP)
-
-# Check normality, linearity, homogeneity plots
-check_model(m_DDBP) 
-
-# Additional residual diagnostics using DHARMa
-simulation_output <- simulateResiduals(fittedModel = m_DDBP)
-plot(simulation_output)
-
-### FAILED RESIDUAL CHECKS 
-
-```
-Save results as tables
-```{r}
-
-# Function to convert ANOVA output to dataframe with Index column
-anova_to_df <- function(anova_obj, index_name) {
-  as.data.frame(anova_obj) %>%
-    mutate(Index = index_name)
-}
-
-# Convert each ANOVA result
-df_shannon <- anova_to_df(anova_shannon, "Shannon diversity")
-df_FPD     <- anova_to_df(anova_FPD, "Faith's PD")
-df_DDBP    <- anova_to_df(anova_DDBP, "Dominance DBP")
-df_evenness <- anova_to_df(anova_evenness, "Evenness Pielou")
-df_observed <- anova_to_df(anova_observed, "Observed richness")
-
-df_shannon$Effect <- rownames(df_shannon)
-df_FPD$Effect <- rownames(df_FPD)
-df_DDBP$Effect <- rownames(df_DDBP)
-df_evenness$Effect <- rownames(df_evenness)
-df_observed$Effect <- rownames(df_observed)
-
-# Combine all into one dataframe
-anova_all <- bind_rows(df_shannon, df_FPD, df_DDBP, df_evenness, df_observed)
-write_csv(anova_all, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Figures/alpha-diversity/16S_ANOVA_ALL.csv")
-
-# Function to convert ANOVA output to dataframe with Index column
-anova_to_df <- function(anova_obj, index_name) {
-  as.data.frame(anova_obj) %>%
-    mutate(Index = index_name)
-}
-
-# Convert each ANOVA result
-# df_shannon <- anova_to_df(m_shannon$contrasts, "Shannon diversity")
-df_FPD     <- anova_to_df(p_FPD$contrasts, "Faith's PD")
-df_observed <- anova_to_df(p_oberved$contrasts, "Observed richness")
-
-# Combine all into one dataframe
-emmeans_all <- bind_rows(df_FPD, df_DDBP, df_evenness, df_observed)
-write_csv(emmeans_all, "/rds/homes/k/kgh742/psf_wgs_project/02.MicrobiomeAnalysis/16S_Figures/alpha-diversity/16S_EMMEANS_ALL.csv")
+# Combine emmeans results
+emmeans_all <- bind_rows(
+  results_to_df(res_shannon, "Shannon diversity", emmeans = TRUE),
+  results_to_df(res_FPD, "Faith's PD", emmeans = TRUE),
+  results_to_df(res_DDBP, "Dominance DBP", emmeans = TRUE),
+  results_to_df(res_evenness, "Evenness Pielou", emmeans = TRUE),
+  results_to_df(res_observed, "Observed richness", emmeans = TRUE)
+)
 ```
 
 PLOT
@@ -369,7 +150,7 @@ PLOT
 
 ps1_long <- ps1.meta %>%
   pivot_longer(
-    cols = c("observed", "diversity_shannon", "Phylogenetic.PD"),  
+    cols = c("observed", "diversity_shannon", "Phylogenetic.PD"),  # Choose alpha metrics of interest
     names_to  = "Index",
     values_to = "Value") %>% 
   mutate(Tissue_health = factor(Tissue_health, levels = c("Healthy", "Non-symptomatic", "Symptomatic")))
