@@ -1,7 +1,7 @@
 # Microbiome-analysis-fraxinus-excelsior
 ## Pseudomonas savastanoi pv. fraxini infects ash (Fraxinus excelsior), causing bark cankers and necrosis. This study investigates the impact of bacterial infection on the host microbiome and overall tree health.
 
-**Background:** Pseudomonas savastanoi pv. fraxini (Psf) infects ash (Fraxinus excelsior), leading to bark cankers and necrotic lesions. The European ash landscape is undergoing rapid change due to a combination of abiotic pressures, such as climate change, and biotic stresses including ash dieback (Hymenoscyphus fraxineus) and the emerald ash borer (Agrilus planipennis). Despite the ecological and economic importance of ash, the microbiome of its bark—a vast and dynamic microbial habitat—has received little attention.
+**Background:** Pseudomonas savastanoi pv. fraxini (Psf) infects ash (Fraxinus excelsior), leading to bark cankers and necrotic lesions. The European ash landscape is undergoing rapid change due to a combination of abiotic pressures, such as climate change, and biotic stresses including ash dieback (Hymenoscyphus fraxineus) and the emerald ash borer (Agrilus planipennis). Despite the ecological and economic importance of ash, the microbiome of its bark, a vast and dynamic microbial habitat, has received little attention.
 
 Psf can persist for several years within cankerous tissue, suggesting a long-term interaction with its host and potential co-evolutionary dynamics. However, it remains unclear whether Psf infection has systemic effects on the host’s microbiome and physiology, or how it interacts with other biotic stressors such as ash dieback. Understanding these relationships is critical for predicting how multiple stress factors may influence ash health and resilience.
 
